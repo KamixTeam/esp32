@@ -1,131 +1,110 @@
-#include "src/gps/gps.h"
-//#include "src/oled/oled.h"
-#include "src/lorap2p/lorap2p.h"
+////////////////////////////////KOL SAATİ BU OLACAK YANİ VERİLERİ BU GÖNDERECEK /////////////////////
 
-#define GPS_ACCURACY 7
-#define PERIOD 2000
+///////Kütüphaneler////////
+#include <SPI.h>         // Lora için kütüphane
+#include <LoRa.h>        // Lora için kütüphane
+#include "SSD1306Wire.h" // OLED ekran için kütüphane
 
-byte localAddress = 0xAA;
-byte peerAddress = 0xBB;
+///////OLED TANIMLAMA////////
+#define I2C_SDA 21                           // OLED PIN
+#define I2C_SCL 22                           // OLED PIN
+SSD1306Wire display(0x3c, I2C_SDA, I2C_SCL, GEOMETRY_128_64, I2C_ONE, -1); // Ekran Tanımlama
 
-unsigned long localGPSFixMillis;
-unsigned long receivedGPSFixMillis;
-unsigned long lastKnownHaversineDistanceMillis;
+///////LORA TANIMLAMA////////
+#define SCK 5
+#define MISO 19
+#define MOSI 27
+#define RADIO_CS_PIN 18
+#define RADIO_DI0_PIN 26
+#define RADIO_RST_PIN 14
+#define BAND 866E6 // GEÇERLİ FREKANS ARALIĞI
 
-long lastSendTime = 0;
-int interval = PERIOD;
-long haversine_distance = 0.0;
+// LORA İLE DATA GÖNDERME OBJESi
+struct Data
+{
+    double lat;
+    double lng;
+    char z[10];
+} data;
 
-LatLong localLatlong = {0.0, 0.0};
-LatLong lastKnownLocalLatlong = {0.0, 0.0};
-LatLong destinationLatlong = {0.0, 0.0};
-
-void setup() {
-  Serial.begin(9600);
-  Serial.println("Start LoRa GPS duplex");
-
-  initGPS();
-  //initOLED();
-  initLora();
-
-  //displayInitOLED();
+void setup()
+{
+    Serial.begin(115200);
+    initOLED();
+    initLora();
 }
 
-void loop() {
-  while (isGPSAvailable()) {
-    getLatLong(&localLatlong);
-  }
+void loop()
+{
+    receiveDataLora();
+}
 
-  if (receiveLora(localAddress, &destinationLatlong.latitude, &destinationLatlong.longitude)) {
-    receivedGPSFixMillis = millis();
-    printStatus("Received", &destinationLatlong, peerAddress, localAddress);
-  }
+/////////////////Lora - OLED - GPS ÇALIŞTIIRMAK İÇ GEREKLİ İŞLMELER/////////////
+void initLora()
+{ // LORA TANIMLANDI BAŞLAMASI İÇİN
 
-  if (millis() - lastSendTime > interval) {
-    if (isGPSValid(&localLatlong)) {
+    SPI.begin(SCK, MISO, MOSI, RADIO_CS_PIN);
+    LoRa.setPins(RADIO_CS_PIN, RADIO_RST_PIN, RADIO_DI0_PIN); // PIN'LER TANIMLANDI
 
-      // If new GPS lat-long is received
-      // Then update timestamp
-      // Then send to peer LoRa node
-      if (!isGPSsameAsLastKnown(&lastKnownLocalLatlong, &localLatlong)) {
-        localGPSFixMillis = millis();
-
-        String latlongData = String(localLatlong.latitude, GPS_ACCURACY) + "," + String(localLatlong.longitude, GPS_ACCURACY);
-        sendLora(latlongData, localAddress, peerAddress);
-
-        lastKnownLocalLatlong.latitude = localLatlong.latitude;
-        lastKnownLocalLatlong.longitude = localLatlong.longitude;
-      }
-
-      // Always display on the OLED with relative time ago
-      String localMillisStr;
-      getReadableTime(localGPSFixMillis, localMillisStr);
-
-      Serial.print("Lat-Long: ");
-      Serial.print(localLatlong.latitude, 7);
-      Serial.print(",");
-      Serial.print(localLatlong.longitude, 7);
-      Serial.print(" at ");
-      Serial.print(localGPSFixMillis);
-      Serial.print("ms. ");
-      Serial.print(localMillisStr);
-      Serial.println(" ago");
-
-      if (doesBothPeerHaveGPSAtSimilarTime(localGPSFixMillis, receivedGPSFixMillis)) {
-        haversine_distance = distance(localLatlong.latitude, localLatlong.longitude, destinationLatlong.latitude, destinationLatlong.longitude);
-        Serial.print("Haversine distance: ");
-        Serial.print(haversine_distance);
-        Serial.println("m.");
-
-        lastKnownHaversineDistanceMillis = millis();
-      }
-
-      String peerMillisStr;
-      getReadableTime(lastKnownHaversineDistanceMillis, peerMillisStr);
-
-      //displayOLED(localLatlong.latitude, localLatlong.longitude, localMillisStr, haversine_distance, peerMillisStr);
-
-
-      lastSendTime = millis();
-      interval = random(1000) + PERIOD;
+    if (!LoRa.begin(BAND))
+    { // FREKANS ARALIĞINDA ÇALIŞMADIĞI DURUMDA HATA VERİYOR
+        Serial.println("Starting LoRa failed!");
+        while (1)
+            ;
     }
-  }
+    Serial.println("LoRa Initializing OK!");
 }
 
-void printStatus(String status, struct LatLong *ll, byte addressA, byte addressB) {
-  Serial.print(status + " latlong ");
-  Serial.print(ll->latitude, GPS_ACCURACY);
-  Serial.print(",");
-  Serial.print(ll->longitude, GPS_ACCURACY);
-  Serial.print(" from 0x" + String(addressA, HEX));
-  Serial.println(" to 0x" + String(addressB, HEX));
+void initOLED()
+{ // OLED EKRAN TANIMLANDI BAŞLAMASI İÇİN
+    display.init();
+    display.flipScreenVertically();
+    display.setFont(ArialMT_Plain_10);
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
 }
 
-void getReadableTime(long millisTime, String &readableTime) {
-  unsigned long seconds = (millis() - millisTime) / 1000;
-  unsigned long minutes = seconds / 60;
-  unsigned long hours = minutes / 60;
-  unsigned long days = hours / 24;
-  millisTime %= 1000;
-  seconds %= 60;
-  minutes %= 60;
-  hours %= 24;
+/////// Veri göndermek için Lora kullanıp veri gönderme //////////
+void receiveDataLora()
+{
+    setOLED();
 
-  if (days > 0) {
-    readableTime = String(days) + " ";
-  }
+    int packetSize = LoRa.parsePacket();
+    if (packetSize)
+    {
+        // received a packet
+        Serial.print("\nReceived packet size ");
+        Serial.print(packetSize);
+        Serial.print(" data ");
+        // read packet
+        while (LoRa.available())
+            for (int i = 0; i < packetSize; i++)
+            {
+                ((byte *)&data)[i] = LoRa.read();
+                Serial.print(' ');
+                Serial.print(((byte *)&data)[i]);
+            }
+        // print RSSI of packet
+        Serial.print("' with RSSI ");
+        Serial.println(LoRa.packetRssi());
+        Serial.print("lat = ");
+        Serial.print(data.lat, 6);
+        Serial.print(" lng = ");
+        Serial.print(data.lng, 6);
+        Serial.print(" z = ");
+        Serial.print(data.z);
 
-  if (hours > 0) {
-    readableTime += String(hours) + ":";
-  }
+        display.drawString(0, 0, String(data.lat));
+        display.drawString(0, 18, String(data.lng));
 
-  if (minutes < 10) {
-    readableTime += "0";
-  }
-  readableTime += String(minutes) + ":";
+        display.display();
+    }
+ 
+}
 
-  if (seconds < 10) {
-    readableTime += "0";
-  }
-  readableTime += String(seconds);
+/// OLED için gerekli bileşenleri barındırır////////////
+void setOLED()
+{
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    display.setFont(ArialMT_Plain_16);
 }

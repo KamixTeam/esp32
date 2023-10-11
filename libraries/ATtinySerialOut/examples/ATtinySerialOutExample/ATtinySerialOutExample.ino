@@ -14,8 +14,8 @@
  *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ *  See the GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
  *  along with this program. If not, see <http://www.gnu.org/licenses/gpl.html>.
@@ -28,10 +28,13 @@
  * You can specify TX_PIN here (before the line #include "ATtinySerialOut.hpp")
  */
 //#if defined(__AVR_ATtiny87__) || defined(__AVR_ATtiny167__)
-//#define TX_PIN PA1 // (package pin 2 / TXD on Tiny167) - can use one of PA0 to PA7 here
+//#define TX_PIN PIN_PA1 // (package pin 2 / TXD on Tiny167) - can use one of PIN_PA0 to PIN_PA7 here
+//#elif defined(__AVR_ATtiny84__)
+//#define TX_PIN PIN_PA1 // can use one of PIN_PA0 to PIN_PA7 and PIN_PB0 to PIN_PB2 here
 //#else
-//#define TX_PIN PB2 // (package pin 7 on Tiny85) - can use one of PB0 to PB4 (+PB5) here
+//#define TX_PIN PIN_PB2 // (package pin 7 on Tiny85) - can use one of PIN_PB0 to PIN_PB4 (+PIN_PB5) here
 //#endif
+
 #include "ATtinySerialOut.hpp"
 
 void setup(void) {
